@@ -7,29 +7,32 @@ import { fetch } from 'wix-fetch'; // For calling backend HTTP functions
 const CEO_EMAIL = "ceo@example.com"; // Replace with actual CEO email
 const DEV_EMAIL = "dev@example.com"; // Replace with actual Dev email
 const CEO_CONTACT_DISPLAY_NAME = "Corey LTS (CEO)";
-// const ACTUAL_DEV_CONTACT_NAME = "the Developer"; // No longer directly used in messages
-
-// Training material URLs are removed as they are now on Discord
 const LTS_DISCORD_SERVER_INVITE_URL = 'https://discord.gg/yourinvite'; // Replace
 
 let onboardingState = {};
 
+// REFACTOR: The steps should represent the question being asked.
+// This list is primarily for reference and not strictly used by the logic.
 const ONBOARDING_STEPS = [
-    'start', 'collect_first_name', 'collect_last_name', 'check_computer_response',
-    'ask_bilingual', 'check_bilingual_response', 'ask_languages', 'ask_state',
-    'ask_email',
-    'final_instructions_pre_contract',
-    'awaiting_sign_contract_command',
-    'awaiting_adobe_signature_completion',
-    // 'provide_training_materials', // REMOVED
-    // 'confirm_training_completion', // REMOVED
-    'final_welcome_and_discord_link',
+    'start', // Asks for first name
+    'collect_first_name', // Asks for last name
+    'collect_last_name', // Asks about computer
+    'check_computer_response', // Asks if bilingual
+    'check_bilingual_response', // Asks which languages (if bilingual)
+    'ask_languages', // Asks for state
+    'ask_state', // Asks for email
+    'ask_email', // Shows declaration
+    'final_instructions_pre_contract', // Awaits 'sign contract' command
+    'awaiting_sign_contract_command', // Awaits user to return from Adobe
+    'awaiting_adobe_signature_completion', // Shows final welcome and Discord link
+    'final_welcome_and_discord_link', // The final state
     'completed'
 ];
 
 // --- Helper to call backend HTTP functions ---
+// This function is well-written and requires no changes.
 async function callBackend(endpoint, payload) {
-    const baseUrl = "/_functions"; // Or your site URL if testing locally with wixDev
+    const baseUrl = "/_functions";
     try {
         const httpResponse = await fetch(`${baseUrl}/${endpoint}`, {
             method: "POST",
@@ -45,10 +48,11 @@ async function callBackend(endpoint, payload) {
         }
     } catch (err) {
         console.error(`Error calling backend function ${endpoint}:`, err);
-        throw err; // Re-throw to be caught by the caller
+        throw err;
     }
 }
 
+// This function is well-written and requires no changes.
 async function sendNotificationToStaff(subject, htmlMessage, recipient) {
     try {
         await callBackend("sendOnboardingNotification", {
@@ -71,7 +75,8 @@ $w.onReady(function () {
     const savedState = session.getItem("onboardingState");
     if (savedState) {
         onboardingState = JSON.parse(savedState);
-        if (onboardingState.step && onboardingState.step !== 'completed') {
+        // If they reload on a completed state, keep it that way.
+        if (onboardingState.step) {
             displayCurrentStep();
         } else {
             startOnboarding();
@@ -80,24 +85,27 @@ $w.onReady(function () {
         startOnboarding();
     }
 
-    $w("#sendButton").onClick(async () => {
-        const userInput = $w("#userInput").value.trim();
-        $w("#userInput").value = "";
-        $w("#statusText").text = "";
-        $w("#statusText").hide();
-        await processUserInput(userInput);
-    });
-
+    // REFACTOR: Use a single handler for both button click and Enter key to avoid repeating code.
+    $w("#sendButton").onClick(handleUserInput);
     $w("#userInput").onKeyPress(async (event) => {
         if (event.key === "Enter") {
-            const userInput = $w("#userInput").value.trim();
-            $w("#userInput").value = "";
-            $w("#statusText").text = "";
-            $w("#statusText").hide();
-            await processUserInput(userInput);
+            await handleUserInput();
         }
     });
 });
+
+// REFACTOR: New function to handle user input from both click and keypress events.
+async function handleUserInput() {
+    const userInput = $w("#userInput").value.trim();
+    if (!userInput && onboardingState.step !== 'awaiting_sign_contract_command') return; // Don't process empty input unless at a specific step
+
+    // Clear UI elements for next interaction
+    $w("#userInput").value = "";
+    $w("#statusText").hide();
+    $w("#statusText").text = "";
+
+    await processUserInput(userInput);
+}
 
 function saveState() {
     session.setItem("onboardingState", JSON.stringify(onboardingState));
@@ -108,19 +116,22 @@ function startOnboarding() {
         step: 'start',
         data: {}
     };
+    $w("#userInput").enable();
+    $w("#sendButton").enable();
     saveState();
     displayCurrentStep();
 }
 
-async function displayCurrentStep(messageOverride = null) { // Made async for notification
+// REFACTOR: This function is now ONLY responsible for displaying UI based on the current state.
+// It no longer changes the state itself (except for sending the final notification which is a "side effect" of displaying that step).
+async function displayCurrentStep(messageOverride = null) {
     const currentStepName = onboardingState.step;
     let messageContent = "";
-    let nextStepInFlow = "";
-
     console.log(`Displaying step: ${currentStepName}`);
 
     if (messageOverride) {
         $w("#botMessage").text = messageOverride;
+        // We do not save state here, as overrides are temporary messages.
         return;
     }
 
@@ -130,36 +141,25 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
                 "I'll guide you through the initial steps.\n\n" +
                 "Please type your responses in the box below and click 'Send'.\n\n" +
                 "Let's start with your name. What is your legal first name?";
-            nextStepInFlow = 'collect_first_name';
             break;
         case 'collect_first_name':
             messageContent = "Thank you. And what is your legal last name?";
-            nextStepInFlow = 'collect_last_name';
             break;
         case 'collect_last_name':
             messageContent = "1. Do you have a computer or laptop (not an iPad or tablet) and headset that you will be using for work? (Y/N)";
-            nextStepInFlow = 'check_computer_response';
             break;
         case 'check_computer_response':
             messageContent = "2. Are you bilingual? (Y/N)";
-            nextStepInFlow = 'check_bilingual_response';
             break;
-        case 'check_bilingual_response':
-            if (onboardingState.data.bilingual) {
-                messageContent = "Great! What languages do you speak fluently (besides English, if applicable)?";
-                nextStepInFlow = 'ask_languages';
-            } else {
-                messageContent = "3. In which state are you located?";
-                nextStepInFlow = 'ask_state';
-            }
+        case 'check_bilingual_response': // This state is no longer used for display, as logic is in processUserInput
+            // This case should theoretically not be hit for display purposes anymore.
+            // Kept for safety, but the flow should skip it.
             break;
         case 'ask_languages':
-            messageContent = "3. In which state are you located?";
-            nextStepInFlow = 'ask_state';
+            messageContent = "Great! What languages do you speak fluently (besides English, if applicable)?";
             break;
         case 'ask_state':
-            messageContent = "4. What is your primary email address? (This is where your contract will be sent)";
-            nextStepInFlow = 'ask_email';
+            messageContent = "3. In which state are you located?";
             break;
         case 'ask_email':
             messageContent = "4. What is your primary email address? (This is where your contract will be sent)";
@@ -167,7 +167,6 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
         case 'final_instructions_pre_contract':
             messageContent = "DECLARATION. I hereby declare that the information I am providing is true...\n\n" +
                 "To proceed with your Independent Contractor Agreement using Adobe Sign, please type `sign contract`.";
-            nextStepInFlow = 'awaiting_sign_contract_command';
             break;
         case 'awaiting_sign_contract_command':
              messageContent = "Please type `sign contract` to proceed or `reset` to start over.";
@@ -176,8 +175,6 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
             messageContent = "Please use the Adobe Sign link provided. Once you have COMPLETED the signing process via Adobe, " +
                              "please return here and type `contract signed`.";
             break;
-        // Cases for provide_training_materials and confirm_training_completion are removed
-
         case 'final_welcome_and_discord_link':
             let finalInstructions = "Welcome aboard officially!\n\n" +
                 "Your contract process has been initiated. Here's what's next and key information:\n\n" +
@@ -195,13 +192,12 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
             }
             finalInstructions += `- Adam Black (Support): Your human contact for project-specific questions and quality control.\n`;
             finalInstructions += `- Samantha: Your Discord training and agent support bot on the main server (if applicable).\n\n`;
-
             finalInstructions += "This fully concludes your automated onboarding. Welcome officially to the team!";
             messageContent = finalInstructions;
 
-            // Send final notification to staff
+            // This action (sending a notification) is a side-effect of reaching this step. It's acceptable here.
             let summary = `User ${onboardingState.data.first_name || 'N/A'} ${onboardingState.data.last_name || 'N/A'} ` +
-                          `has completed the automated onboarding process and has been provided with the Discord link and final instructions.\n\n` +
+                `has completed the automated onboarding process and has been provided with the Discord link and final instructions.\n\n` +
                 `Summary of collected information:\n` +
                 `--------------------------------------------------\n` +
                 `Has Computer/Laptop: ${onboardingState.data.has_computer ? 'Yes' : 'No'}\n` +
@@ -218,7 +214,7 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
             if (CEO_EMAIL) await sendNotificationToStaff(finalNotifSubject, `<p>${summary.replace(/\n/g, '<br>')}</p>`, CEO_EMAIL);
             if (DEV_EMAIL) await sendNotificationToStaff(finalNotifSubject, `<p>${summary.replace(/\n/g, '<br>')}</p>`, DEV_EMAIL);
 
-            nextStepInFlow = 'completed';
+            onboardingState.step = 'completed'; // Finally, set the state to completed.
             break;
         case 'completed':
             messageContent = "Your onboarding is complete! You can close this page or type `reset` to start over.";
@@ -230,47 +226,42 @@ async function displayCurrentStep(messageOverride = null) { // Made async for no
     }
 
     $w("#botMessage").text = messageContent;
-    if (nextStepInFlow && onboardingState.step === currentStepName) {
-        onboardingState.step = nextStepInFlow;
-    }
     saveState();
 }
 
+// REFACTOR: This function is now the single source of truth for all business logic and state transitions.
 async function processUserInput(input) {
     const processedInput = input.toLowerCase().trim();
     const currentStepName = onboardingState.step;
 
     if (processedInput === 'reset') {
         startOnboarding();
-        $w("#userInput").enable();
-        $w("#sendButton").enable();
         return;
     }
 
-    let userMessageForNextStep = null;
+    let userMessageForNextStep = null; // Use this for validation errors.
 
     switch (currentStepName) {
         case 'start':
-        case 'collect_first_name':
             if (input) {
                 onboardingState.data.first_name = input;
-                onboardingState.step = 'collect_last_name';
+                onboardingState.step = 'collect_first_name';
             } else {
                 userMessageForNextStep = "Please provide your legal first name.";
             }
             break;
-        case 'collect_last_name':
+        case 'collect_first_name':
             if (input) {
                 onboardingState.data.last_name = input;
-                onboardingState.step = 'check_computer_response';
+                onboardingState.step = 'collect_last_name';
             } else {
                 userMessageForNextStep = "Please provide your legal last name.";
             }
             break;
-        case 'check_computer_response':
+        case 'collect_last_name':
             if (processedInput === 'y') {
                 onboardingState.data.has_computer = true;
-                onboardingState.step = 'check_bilingual_response';
+                onboardingState.step = 'check_computer_response';
             } else if (processedInput === 'n') {
                 onboardingState.data.has_computer = false;
                 userMessageForNextStep = "A computer or laptop is required. Onboarding cannot continue.";
@@ -282,13 +273,13 @@ async function processUserInput(input) {
                 userMessageForNextStep = "Invalid input. Please answer Y or N.";
             }
             break;
-        case 'check_bilingual_response':
+        case 'check_computer_response':
             if (processedInput === 'y') {
                 onboardingState.data.bilingual = true;
                 onboardingState.step = 'ask_languages';
             } else if (processedInput === 'n') {
                 onboardingState.data.bilingual = false;
-                onboardingState.step = 'ask_state';
+                onboardingState.step = 'ask_state'; // Skip asking for languages
             } else {
                 userMessageForNextStep = "Invalid input. Please answer Y or N.";
             }
@@ -298,7 +289,6 @@ async function processUserInput(input) {
             onboardingState.step = 'ask_state';
             break;
         case 'ask_state':
-            onboardingState.data.state = input;
             const restrictedStates = ['oregon', 'or', 'washington', 'wa', 'california', 'ca'];
             if (restrictedStates.includes(processedInput)) {
                 userMessageForNextStep = "Unfortunately, we cannot proceed with applications from Oregon, Washington, or California at this time.";
@@ -307,6 +297,7 @@ async function processUserInput(input) {
                 $w("#userInput").disable();
                 $w("#sendButton").disable();
             } else {
+                onboardingState.data.state = input;
                 onboardingState.step = 'ask_email';
             }
             break;
@@ -319,6 +310,7 @@ async function processUserInput(input) {
                 userMessageForNextStep = "That doesn't look like a valid email. Please try again.";
             }
             break;
+        case 'final_instructions_pre_contract':
         case 'awaiting_sign_contract_command':
             if (processedInput === 'sign contract') {
                 $w("#statusText").text = "Preparing your contract with Adobe Sign. This may take a moment...";
@@ -341,14 +333,15 @@ async function processUserInput(input) {
                         "(The link will open in a new tab. If your browser blocks pop-ups, you may need to allow it or copy the link.)\n\n" +
                         "Once you have COMPLETED the signing process via Adobe, please return here and type `contract signed`.";
                     onboardingState.step = 'awaiting_adobe_signature_completion';
-                    $w("#statusText").hide();
+                    
                 } catch (error) {
                     console.error("Adobe Sign error:", error);
                     userMessageForNextStep = `Error preparing contract: ${error.message}. Please contact an administrator or type 'reset' to try again.`;
-                    $w("#statusText").text = `Error: ${error.message}`;
+                    onboardingState.step = 'final_instructions_pre_contract'; // Go back a step on error
                 } finally {
                     $w("#sendButton").enable();
                     $w("#userInput").enable();
+                    $w("#statusText").hide();
                 }
             } else {
                 userMessageForNextStep = "Please type `sign contract` to proceed or `reset` to start over.";
@@ -357,8 +350,7 @@ async function processUserInput(input) {
         case 'awaiting_adobe_signature_completion':
             if (processedInput === 'contract signed') {
                 onboardingState.data.contract_process_completed_by_user = true;
-                // No specific user message here, displayCurrentStep for the new step will handle it.
-                onboardingState.step = 'final_welcome_and_discord_link'; // MODIFIED: Go to final welcome
+                onboardingState.step = 'final_welcome_and_discord_link';
 
                 const staffNotificationSubject = `Contract Signed: ${onboardingState.data.first_name} ${onboardingState.data.last_name}`;
                 const staffNotificationBody = `
@@ -372,19 +364,20 @@ async function processUserInput(input) {
                 userMessageForNextStep = "Please use the Adobe Sign link. Once signed, type `contract signed` back here.";
             }
             break;
-        // Case for 'confirm_training_completion' is removed.
-
         case 'completed':
             userMessageForNextStep = "Your onboarding is already complete. Type `reset` to start over.";
             break;
         default:
              userMessageForNextStep = "I'm a bit confused. Type `reset` to start over. (Current step: " + currentStepName + ")";
     }
-
+    
+    // After processing, save the new state and display the next step or an error message.
     saveState();
     if (userMessageForNextStep) {
-        await displayCurrentStep(userMessageForNextStep); // await if it's async
+        // A temporary message was generated (e.g., for an error), so display it.
+        await displayCurrentStep(userMessageForNextStep); 
     } else {
-        await displayCurrentStep(); // await if it's async
+        // The state was advanced successfully, so display the new step's content.
+        await displayCurrentStep(); 
     }
 }
