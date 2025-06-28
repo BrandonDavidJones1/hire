@@ -1,0 +1,77 @@
+// Filename: backend/http-functions.jsw
+
+import { ok, serverError } from 'wix-http-functions';
+import { fetch } from 'wix-fetch';
+import { getSecret } from 'wix-secrets-backend';
+
+// --- Function to send notifications (e.g., via SendGrid, Postmark, etc.) ---
+// This function is exposed as a public endpoint at:
+// POST /_functions/sendOnboardingNotification
+export async function post_sendOnboardingNotification(request) {
+    try {
+        const body = await request.body.json();
+        const { recipientEmail, subject, htmlMessage } = body;
+
+        // --- !!! YOUR LOGIC GOES HERE !!! ---
+        // You need to use an email service provider. Wix does not have a built-in email sender for this purpose.
+        // 1. Get your email provider's API key securely using Wix Secrets Manager.
+        //    const myEmailServiceApiKey = await getSecret("myEmailProviderApiKey");
+        // 2. Use wix-fetch to make a POST request to your email provider's API.
+        
+        console.log(`(Backend) Would send email to ${recipientEmail} with subject: ${subject}`);
+        
+        // This is a placeholder response. Replace with actual logic.
+        // For example:
+        /*
+        const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+             method: "POST",
+             headers: {
+                 "Authorization": `Bearer ${myEmailServiceApiKey}`,
+                 "Content-Type": "application/json"
+             },
+             body: JSON.stringify({ ...payload for SendGrid... })
+        });
+        if (!response.ok) {
+            throw new Error("Failed to send email");
+        }
+        */
+
+        return ok({ message: "Notification sent successfully" });
+
+    } catch (error) {
+        console.error("Backend Error in sendOnboardingNotification:", error);
+        return serverError({ error: error.message });
+    }
+}
+
+
+// --- Function to initiate the Adobe Sign contract ---
+// This function is exposed as a public endpoint at:
+// POST /_functions/initiateAdobeSignContract
+export async function post_initiateAdobeSignContract(request) {
+    try {
+        const body = await request.body.json();
+        const { email, firstName, lastName, agreementName } = body;
+
+        // --- !!! YOUR ADOBE SIGN LOGIC GOES HERE !!! ---
+        // 1. Get your Adobe Sign API keys/tokens from the Wix Secrets Manager.
+        //    const adobeApiKey = await getSecret("adobeApiKey");
+        // 2. Use wix-fetch to call the Adobe Sign API to create a new agreement.
+        //    You will need to consult the Adobe Sign API documentation for the correct endpoint and payload structure.
+
+        console.log(`(Backend) Would initiate Adobe Sign for ${firstName} ${lastName} at ${email}`);
+        
+        // This is a placeholder response. You MUST replace this with a real response from Adobe.
+        const adobeApiResponse = {
+            agreementId: "DUMMY_AGREEMENT_ID_12345",
+            signingUrl: "https://secure.echosign.com/public/dummySigningUrl" // A FAKE URL
+        };
+        
+        // return ok(REAL_RESPONSE_FROM_ADOBE);
+        return ok(adobeApiResponse);
+
+    } catch (error) {
+        console.error("Backend Error in initiateAdobeSignContract:", error);
+        return serverError({ error: error.message });
+    }
+}
